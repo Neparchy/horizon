@@ -48,6 +48,7 @@ fn shared(load: impl FnOnce() -> Result<serde_json::Value, String>) -> (Vec<Rele
         load,
         installed_fixture,
         |list| parse_releases(list, LAUNCHER_ASSET, is_launcher_tag),
+        true,
         |r| releases = Some(r.unwrap()),
     )
     .unwrap();
@@ -84,6 +85,7 @@ fn errors_reach_releases_and_updates_without_fallback() {
             || Err(error.into()),
             || panic!("no installed scan after failure"),
             |_| panic!("no fallback after failure"),
+            true,
             |r| published = Some(r),
         );
         assert_eq!(published.unwrap().unwrap_err(), error);
@@ -113,6 +115,7 @@ fn publish_games_before_older_launcher_fallback() {
                 }
             })
         },
+        true,
         |r| {
             assert_eq!(r.unwrap()[0].tag, "v2026.10.14");
             events.borrow_mut().push("releases");
@@ -135,6 +138,7 @@ fn failed_launcher_fallback_keeps_game_result_and_checks_stay_fresh() {
             },
             Vec::new,
             |list| launcher_releases_in_with(list, |_| Err("offline".into())),
+            true,
             |r| published = Some(r.unwrap()),
         )
         .unwrap();
@@ -142,6 +146,41 @@ fn failed_launcher_fallback_keeps_game_result_and_checks_stay_fresh() {
         assert!(updates.launcher.is_none());
     }
     assert_eq!(requests.load(Ordering::Relaxed), 2);
+}
+
+#[test]
+fn offline_builds_keep_game_updates_without_loading_launcher_updates() {
+    let mut published = None;
+    let updates = releases_and_updates_with(
+        || Ok(serde_json::from_str(&fixture()).unwrap()),
+        installed_fixture,
+        |_| panic!("offline builds must not load launcher updates"),
+        self_update_allowed(),
+        |r| published = Some(r.unwrap()),
+    )
+    .unwrap();
+    assert_eq!(published.unwrap()[0].tag, "v2026.10.14.98");
+    assert_eq!(
+        updates.horizon.as_ref().map(|r| r.tag.as_str()),
+        ASSET.map(|_| "v2026.10.14.98")
+    );
+    assert!(updates.launcher.is_none());
+}
+
+#[test]
+fn offline_builds_do_not_stage_launcher_updates() {
+    let release = Release {
+        tag: "launcher@99.0.0".into(),
+        name: "Upstream launcher".into(),
+        body: String::new(),
+        date: String::new(),
+        time: String::new(),
+        asset: None,
+        prerelease: false,
+        nightly: None,
+    };
+    let staged = stage_update(&release, |_| panic!("no launcher download should start"));
+    assert!(staged.unwrap().is_none());
 }
 
 #[test]

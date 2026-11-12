@@ -1,0 +1,157 @@
+name: offline-binaries
+
+on:
+  push:
+    branches: [offline-release-build]
+    paths: ['.github/workflows/offline-binaries.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offline-binaries
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.version }} / ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['0.2.59', '0.2.60', '0.2.61']
+        include:
+          - platform: linux
+            os: ubuntu-22.04
+            binary: horizon-launcher
+          - platform: windows
+            os: windows-2022
+            binary: horizon-launcher.exe
+            rustflags: -C target-feature=+crt-static
+        platform: [linux, windows]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: launcher
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+      HORIZON_LAUNCHER_VERSION: ${{ matrix.version }}-offline
+      HORIZON_LAUNCHER_TAG: launcher@${{ matrix.version }}-offline
+      HORIZON_LAUNCHER_NO_SELF_UPDATE: '1'
+      HORIZON_NO_AUDIO: '1'
+      HORIZON_TELEMETRY_URL: 'off'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/v${{ matrix.version }}-offline
+          persist-credentials: false
+      - name: Isolate test and smoke-test data
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import tempfile
+          root = pathlib.Path(tempfile.mkdtemp(prefix='horizon-offline-', dir=os.environ['RUNNER_TEMP']))
+          homes = {
+              'HORIZON_HOME': 'home',
+              'HORIZON_LAUNCHER_HOME': 'launcher',
+              'XDG_DATA_HOME': 'data',
+              'XDG_CONFIG_HOME': 'config',
+              'HORIZON_LAUNCHER_TRASH': 'trash',
+              'HORIZON_LAUNCHER_CLIPBOARD': 'clipboard',
+              'HORIZON_LAUNCHER_DESKTOP': 'desktop',
+          }
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
+              for name, folder in homes.items():
+                  env.write(f'{name}={(root / folder).as_posix()}\n')
+          PY
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        with:
+          workspaces: launcher
+          shared-key: offline-${{ matrix.platform }}
+          key: ${{ matrix.version }}
+      - name: Linux build libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libfontconfig-dev libvulkan-dev libasound2-dev patchelf
+      - name: Check tracked files
+        run: cd .. && python tools/check_public_tree.py
+      - name: Test launcher
+        run: cargo test --release --locked
+      - name: Build launcher
+        run: cargo build --release --locked
+      - name: Check version and CLI startup
+        run: |
+          launcher="$PWD/target/release/${{ matrix.binary }}"
+          [[ "$("$launcher" --version)" == "horizon-launcher $HORIZON_LAUNCHER_VERSION" ]]
+          "$launcher" --help > "$RUNNER_TEMP/offline-launcher-help.txt"
+      - name: Verify Windows architecture and imports
+        if: runner.os == 'Windows'
+        run: |
+          python ../tools/check_pe_arch.py x64 target/release/horizon-launcher.exe
+          python ../tools/check_imports.py target/release/horizon-launcher.exe
+      - name: Package Linux binaries
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p out
+          cp target/release/horizon-launcher out/horizon-launcher-linux-x86_64
+          tar -C target/release -czf out/horizon-launcher-linux-x86_64.tar.gz horizon-launcher
+          ../packaging/linux/appimage.sh target/release/horizon-launcher "$HORIZON_LAUNCHER_VERSION" out
+      - name: Package Windows binaries
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p out
+          cp target/release/horizon-launcher.exe out/horizon-launcher.exe
+          cp target/release/horizon-launcher.exe out/horizon-launcher-setup.exe
+          (cd target/release && 7z a ../../out/horizon-launcher-windows-x64.zip horizon-launcher.exe)
+      - name: Write checksums
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          out = Path('out')
+          files = sorted(p for p in out.iterdir() if p.is_file())
+          sums = out / f'SHA256SUMS-{os.environ["PLATFORM"]}-x86_64.txt'
+          with sums.open('w', encoding='utf-8', newline='\n') as dest:
+              for path in files:
+                  digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                  dest.write(f'{digest}  {path.name}\n')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: offline-${{ matrix.version }}-${{ matrix.platform }}
+          path: launcher/out/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          path: artifacts
+          pattern: offline-*
+      - name: Attach binaries to existing releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for version in 0.2.59 0.2.60 0.2.61; do
+            tag="v$version-offline"
+            gh release view "$tag" --json tagName --jq .tagName
+            gh release upload "$tag" artifacts/offline-"$version"-linux/* artifacts/offline-"$version"-windows/* --clobber
+          done

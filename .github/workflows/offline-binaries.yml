@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['0.2.59', '0.2.60', '0.2.61']
+        version: ['0.2.61']
         include:
           - platform: linux
             os: ubuntu-22.04
@@ -37,6 +37,7 @@ jobs:
         working-directory: launcher
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
+      HORIZON_MSA_CLIENT_ID: ${{ vars.HORIZON_MSA_CLIENT_ID }}
       HORIZON_LAUNCHER_VERSION: ${{ matrix.version }}-offline
       HORIZON_LAUNCHER_TAG: launcher@${{ matrix.version }}-offline
       HORIZON_LAUNCHER_NO_SELF_UPDATE: '1'
@@ -154,7 +155,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for version in 0.2.59 0.2.60 0.2.61; do
+          for version in 0.2.61; do
             tag="v$version-offline"
             gh release view "$tag" --json tagName --jq .tagName
             gh release upload "$tag" artifacts/offline-"$version"-linux/* artifacts/offline-"$version"-windows/* --clobber

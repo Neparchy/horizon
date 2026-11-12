@@ -82,6 +82,10 @@ jobs:
         run: cd .. && python tools/check_public_tree.py
       - name: Test launcher
         run: cargo test --release --locked
+      - name: Verify compiled-in offline update policy
+        run: |
+          unset HORIZON_LAUNCHER_NO_SELF_UPDATE
+          cargo test --release --locked --lib backend::release_loading_tests::offline_builds_
       - name: Build launcher
         run: cargo build --release --locked
       - name: Check version and CLI startup

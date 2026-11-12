@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['0.2.61']
+        version: ['0.2.62']
         include:
           - platform: linux
             os: ubuntu-22.04
@@ -46,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: refs/tags/v${{ matrix.version }}-offline
+          ref: refs/tags/v${{ matrix.version }}
           persist-credentials: false
       - name: Isolate test and smoke-test data
         run: |
@@ -155,8 +155,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for version in 0.2.61; do
-            tag="v$version-offline"
+          for version in 0.2.62; do
+            tag="v$version"
+            for platform in linux windows; do
+              (cd "artifacts/offline-$version-$platform" && sha256sum -c "SHA256SUMS-$platform-x86_64.txt")
+            done
             gh release view "$tag" --json tagName --jq .tagName
             gh release upload "$tag" artifacts/offline-"$version"-linux/* artifacts/offline-"$version"-windows/* --clobber
+            gh release edit "$tag" --draft=false --latest
           done

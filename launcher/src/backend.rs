@@ -2114,7 +2114,8 @@ fn download_for_owner(
     log: &dyn Fn(String),
 ) -> Result<(), String> {
     let mut accounts = account::Accounts::load();
-    // Any account that owns the game may download it (`launch`), not only the one that plays.
+    // The strict gate, never `launch_for_game`: the developer option that lets offline names
+    // play without an owner must not download the game for them.
     let pass = account::launch(
         &account::Endpoints::live(),
         account::client_id().as_deref(),
@@ -3174,14 +3175,14 @@ pub fn client(tag: &str) -> Result<Command, String> {
 pub const SIGN_IN_HINT: &str = "Sign in with `horizon-launcher account sign-in`.";
 
 /// [`client`], playing as `who` for this launch only (`play --account`).
-pub fn client_as(tag: &str, who: Option<&str>) -> Result<Command, String> {
+pub fn client_as(tag: &str, who: Option<&account::Player>) -> Result<Command, String> {
     if let Some(error) = game_architecture_launch_error(tag) {
         return Err(error);
     }
     play_step("reading the sign-in");
     let hint = |refused: String| format!("{refused} {}", crate::i18n::tr(SIGN_IN_HINT));
     let session = match who {
-        None => account::session_for_game(&game_home()).map_err(|refused| {
+        None => account::session_for_game(&game_home(), false).map_err(|refused| {
             // A keyring that didn't answer isn't a missing sign-in (#12179).
             match refused.keyring {
                 Some(why) => why,
@@ -3361,13 +3362,20 @@ fn launcher_update_from(releases: &[Release], own: &str) -> Option<Release> {
 pub fn releases_and_updates(
     on_releases: impl FnOnce(Result<Vec<Release>, String>),
 ) -> Result<Updates, String> {
-    releases_and_updates_with(release_list, installed, launcher_releases_in, on_releases)
+    releases_and_updates_with(
+        release_list,
+        installed,
+        launcher_releases_in,
+        self_update_allowed(),
+        on_releases,
+    )
 }
 
 fn releases_and_updates_with(
     load: impl FnOnce() -> Result<serde_json::Value, String>,
     installed: impl FnOnce() -> Vec<String>,
     launchers: impl FnOnce(&serde_json::Value) -> Vec<Release>,
+    launcher_updates: bool,
     on_releases: impl FnOnce(Result<Vec<Release>, String>),
 ) -> Result<Updates, String> {
     let list = match load() {
@@ -3384,7 +3392,11 @@ fn releases_and_updates_with(
     on_releases(Ok(releases));
     Ok(Updates {
         horizon,
-        launcher: launcher_update(&launchers(&list)),
+        launcher: if launcher_updates {
+            launcher_update(&launchers(&list))
+        } else {
+            None
+        },
     })
 }
 
@@ -3545,9 +3557,10 @@ fn launcher_asset_running_from(appimage: bool) -> Option<&'static str> {
     }
 }
 
-/// Development builds and `HORIZON_LAUNCHER_NO_SELF_UPDATE` never replace themselves.
+/// Offline builds never replace themselves with an upstream launcher, which would remove
+/// offline-name support. This policy is compiled in; game downloads and updates stay upstream.
 pub fn self_update_allowed() -> bool {
-    !cfg!(debug_assertions) && std::env::var_os("HORIZON_LAUNCHER_NO_SELF_UPDATE").is_none()
+    false
 }
 
 /// The version in `horizon-launcher --version`'s output (`horizon-launcher 0.1.5`).
@@ -3949,6 +3962,9 @@ pub fn self_update(release: &Release, progress: impl Fn(f32)) -> Result<(), Stri
 /// stage folder that no other launcher writes to. None when the file there already is that release
 /// or a newer one.
 pub fn stage_update(release: &Release, progress: impl Fn(f32)) -> Result<Option<Staged>, String> {
+    if !self_update_allowed() {
+        return Ok(None);
+    }
     let (url, size) = release
         .asset
         .clone()
@@ -4511,6 +4527,11 @@ pub struct Settings {
     /// An older file's switch for the release profile, read when `native_profile` is unset.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub native_release: bool,
+    /// Offline-name mode, enabled by default in this private build. Downloads still require
+    /// an owner; the game files otherwise come from the player's own installation.
+    /// Serialize false too, so an explicit opt-out survives restarting the launcher.
+    #[serde(default)]
+    pub dev_offline: bool,
 }
 
 impl Settings {
@@ -4519,9 +4540,15 @@ impl Settings {
     }
     pub fn parse(text: &str) -> Self {
         let Ok(mut value) = serde_json::from_str::<serde_json::Value>(text) else {
-            return Self::default();
+            return Self {
+                dev_offline: true,
+                ..Self::default()
+            };
         };
         if let Some(fields) = value.as_object_mut() {
+            fields
+                .entry("dev_offline")
+                .or_insert(serde_json::Value::Bool(true));
             // An appearance from a newer launcher is Dark, not a reason to lose every setting.
             if fields
                 .get("appearance")

@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['0.2.62']
+        version: ['0.2.63']
         include:
           - platform: linux
             os: ubuntu-22.04
@@ -155,7 +155,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for version in 0.2.62; do
+          for version in 0.2.63; do
             tag="v$version"
             for platform in linux windows; do
               (cd "artifacts/offline-$version-$platform" && sha256sum -c "SHA256SUMS-$platform-x86_64.txt")

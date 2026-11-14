@@ -162,6 +162,10 @@ pub fn run() -> Option<i32> {
     if args.first()? != COMMAND {
         return None;
     }
+    // An older launcher may have staged an update before this offline build was installed.
+    if !backend::self_update_allowed() {
+        return Some(0);
+    }
     let sha256 = std::env::var(SHA256_ENV).unwrap_or_default();
     let Some(request) = parse(args, sha256) else {
         eprintln!(

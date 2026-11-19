@@ -26,7 +26,9 @@ impl Launcher {
                 }
             };
             if let Some(account::GameSession { file, offline, env }) = pass {
-                self.owner = Some(true);
+                if !self.settings.dev_offline {
+                    self.owner = Some(true);
+                }
                 if let Some(file) = file {
                     cmd.arg("--session-file").arg(file);
                 }
@@ -49,6 +51,10 @@ impl Launcher {
                 self.client_error = Some(tr(horizon_launcher::developer_offline::NOTICE).into());
             }
             self.accounts = Accounts::load();
+            if let Some(name) = self.accounts.name_arg() {
+                cmd.arg("--name").arg(name);
+            }
+            cmd.envs(self.accounts.look_env());
             // A pack's Play button plays that pack; Play plays the selected instance.
             let pack = self.starting_pack.take();
             let instance = match &pack {

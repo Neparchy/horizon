@@ -24,6 +24,7 @@ mod console;
 mod console_page;
 mod cull;
 mod datapacks_page;
+mod dev_options;
 mod developer_play;
 mod export_page;
 mod frame;
@@ -89,6 +90,7 @@ mod servers_page;
 mod setup_page;
 mod shell;
 mod shortcut_page;
+mod skin_page;
 mod specimen;
 mod sticky;
 mod switch_page;
@@ -390,6 +392,8 @@ struct Launcher {
     /// Where the mouse went down to close a menu by pressing outside it, so that the
     /// same press, ending on the menu's own button, doesn't open it again.
     menu_closed_at: Option<Point<Pixels>>,
+    /// Settings > Account's skin panel for an offline name (`skin_page.rs`).
+    skin: Option<skin_page::SkinPanel>,
     /// The Wardrobe page's account and outfit (`wardrobe_page.rs`).
     wardrobe: Option<wardrobe_page::Wardrobe>,
     /// Name tag styles' marks; they outlive the account's `wardrobe`.
@@ -459,6 +463,10 @@ struct Launcher {
     owner: Option<bool>,
     /// Play was refused (or Home's Sign in pressed): the owner gate's screen is open.
     owner_screen_open: bool,
+    /// Clicks on the sidebar's launcher version, and whether they revealed the developer options
+    /// (`dev_options`) for this run.
+    dev_clicks: u8,
+    dev_options: bool,
     /// The game is waiting for its session (a token renewal), or a Java instance for its files
     /// and Java (`start_java`), before it starts.
     starting_client: Option<String>,
@@ -590,6 +598,8 @@ struct Launcher {
     aside: while_playing::Aside,
     /// The selected instance's desktop shortcut (`shortcut_page.rs`).
     shortcuts: shortcut_page::Shortcuts,
+    /// The name the game made up for an offline player (`horizon-player.txt`), for the top bar.
+    offline_name: Option<String>,
     /// The player's servers, for the sidebar until the Servers page has read them.
     side_servers: Vec<horizon_launcher::servers::Entry>,
     /// The pixel art made for this window (`art.rs`), and pictures downloaded by URL.
@@ -605,6 +615,19 @@ struct Launcher {
     pushed: Option<launcher_render::Pushed>,
     /// The window's scale, as of its last frame, for art drawn outside `render`'s reach.
     scale: f32,
+}
+
+/// The name the game kept for an offline player.
+fn offline_name() -> Option<String> {
+    player_name(&std::fs::read_to_string(backend::game_home().join("horizon-player.txt")).ok()?)
+}
+
+fn player_name(text: &str) -> Option<String> {
+    text.lines()
+        .find_map(|line| line.trim().strip_prefix("name:"))
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
 }
 
 actions!(horizon_launcher, [Quit, CloseWindow]);
@@ -905,6 +928,18 @@ mod tests {
             &menus[0].items[0],
             gpui::MenuItem::Action { name, .. } if name == "Quit Horizon Launcher"
         ));
+    }
+
+    #[test]
+    fn the_offline_name_is_read_from_its_key() {
+        use super::player_name;
+        assert_eq!(
+            player_name("name:Player63010\n").as_deref(),
+            Some("Player63010")
+        );
+        assert_eq!(player_name("name:Steve\r\n").as_deref(), Some("Steve"));
+        assert_eq!(player_name("Player63010\n"), None);
+        assert_eq!(player_name(""), None);
     }
 
     #[test]

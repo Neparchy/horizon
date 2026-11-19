@@ -28,7 +28,10 @@ impl Launcher {
         }
         // A signed-in account shows its face (its skin, else its UUID's default).
         let (name, how) = self.who_plays();
-        let face = self.accounts.selected().map(|a| a.uuid.clone());
+        let face = match self.accounts.player() {
+            account::Player::Microsoft(_) => self.accounts.selected().map(|a| a.uuid.clone()),
+            _ => None,
+        };
         let picture = match face {
             Some(uuid) => (self.profile_heads)
                 .draw(Some(&uuid), 28., self.scale, &t)
@@ -379,7 +382,11 @@ impl Launcher {
                 .id("launcher-version")
                 .px(px(8.))
                 .pt(px(6.))
-                .child(trf("Launcher {version}", &[("version", backend::VERSION)])),
+                .child(trf("Launcher {version}", &[("version", backend::VERSION)]))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.version_clicked();
+                    cx.notify();
+                })),
         );
         // Custom title bars carry the mark and name already.
         let brand = (!titlebar::draws_brand(window)).then(|| {

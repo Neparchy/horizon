@@ -171,6 +171,7 @@ impl Launcher {
             sheet_tab: Default::default(),
             look: horizon_theme::glass::Glass::default_look(),
             menu_closed_at: None,
+            skin: None,
             wardrobe: None,
             wardrobe_marks: Default::default(),
             wardrobe_reload: false,
@@ -223,6 +224,8 @@ impl Launcher {
             keychain: None,
             owner: None,
             owner_screen_open: false,
+            dev_clicks: 0,
+            dev_options: false,
             starting_client: None,
             starting_instance: None,
             pre_launch_stop: None,
@@ -294,6 +297,7 @@ impl Launcher {
             console: Default::default(),
             aside: while_playing::Aside::new(window.window_handle()),
             shortcuts: Default::default(),
+            offline_name: offline_name(),
             side_servers: horizon_launcher::servers::list(),
             sky,
             scene,
@@ -419,6 +423,7 @@ impl Launcher {
     pub(crate) fn go(&mut self, page: Page) {
         // The CLI or another window may have changed the accounts: read them again (a small
         // file, once a switch).
+        self.offline_name = offline_name();
         self.accounts = Accounts::load();
         // Each check reads the keychain (a prompt on macOS): page switches check every account
         // at most once a minute, and an account added meanwhile at once.

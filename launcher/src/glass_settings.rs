@@ -714,7 +714,8 @@ impl Launcher {
                     Some(b.menu_entry.into_any_element()),
                     &t,
                 ))
-            });
+            })
+            .children(self.dev_options_section(cx));
         vec![
             launcher,
             appearance,

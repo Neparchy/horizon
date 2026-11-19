@@ -74,6 +74,8 @@ pub(super) enum Field {
     PostExit,
     /// Home's memory row (`launch_page.rs`).
     MemoryLimit,
+    /// Settings' new offline name (`switch_page.rs`).
+    OfflineName,
     DeleteServer,
     /// Settings' accent as hex (`themes_page.rs`).
     AccentHex,
@@ -393,9 +395,13 @@ pub(super) fn keep_running_through_update() {
     STARTED_HERE.lock().unwrap().clear();
 }
 
-/// The player's own name, to let them in on a friends-only server: the Microsoft account that plays.
+/// The player's own name, to let them in on a friends-only server: the Microsoft account that plays,
+/// else the name the game made up for them (`horizon-player.txt`).
 fn own_name(accounts: &Accounts) -> Option<String> {
-    accounts.selected().map(|a| a.name.clone())
+    accounts
+        .selected()
+        .map(|a| a.name.clone())
+        .or_else(crate::offline_name)
 }
 
 impl Launcher {
@@ -1089,7 +1095,7 @@ impl Launcher {
                         .font_weight(FontWeight::MEDIUM)
                 })
                 // The friend field sits in its chip, on the chip's fill.
-                .when(matches!(f, Field::Players), |d| {
+                .when(matches!(f, Field::Players | Field::OfflineName), |d| {
                     d.h_full().px(px(14.)).bg(gpui::transparent_black())
                 })
                 // The server's command line: the field is the line's middle, on its fill, in mono.
@@ -1104,7 +1110,9 @@ impl Launcher {
                 // The mockup's focus ring (`:focus-visible`, 2 px of the accent's soft shade) on a
                 // field of its own, drawn inside its edge: GPUI has no outline.
                 .when(
-                    focused && !invalid && !matches!(f, Field::Players | Field::Command),
+                    focused
+                        && !invalid
+                        && !matches!(f, Field::Players | Field::OfflineName | Field::Command),
                     |d| {
                         let small = matches!(
                             f,
@@ -1254,6 +1262,7 @@ impl Launcher {
                 self.save_launch()
             }
             Field::MemoryLimit => self.memory_enter(),
+            Field::OfflineName => self.offline_name_enter(),
             Field::ShopGift => self.shop.find_soon = true,
             Field::ServerName | Field::ServerAddress => self.add_server(),
         }

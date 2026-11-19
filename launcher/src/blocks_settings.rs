@@ -188,6 +188,7 @@ impl Launcher {
             );
         }
         let (accounts, n) = self.account_rows(cx);
+        let (offline, n) = self.offline_rows(n, cx);
         let group = |label: &'static str, icon: &'static str| {
             section_title(label, icon, &t).mt(px(20.)).mb(px(12.))
         };
@@ -206,6 +207,7 @@ impl Launcher {
                     .flex_col()
                     .child(group("Account", "user").mt_0())
                     .child(accounts)
+                    .child(offline)
                     .child(group("Updates", "reload"))
                     .child(index_row(n + 1, "Horizon", Some(plain(&horizon)), horizon_action, &t))
                     .child(index_row(
@@ -295,6 +297,7 @@ impl Launcher {
             )
             .child(self.collection_section(cx))
             .children(self.agents_section(cx))
+            .children(self.dev_options_section(cx))
     }
 
     pub(crate) fn request_native_build_consent(&mut self) {
@@ -627,7 +630,7 @@ impl Launcher {
                 actions = actions.child(
                     button(format!("select-{i}"), "Play as", Kind::Secondary, &t).on_click(
                         cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.play_as(&uuid);
+                            this.play_as(account::Player::Microsoft(uuid.clone()));
                             cx.notify();
                         }),
                     ),

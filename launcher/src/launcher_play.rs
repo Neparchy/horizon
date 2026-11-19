@@ -374,6 +374,7 @@ impl Launcher {
             });
         let mods_tx = self.mods.tx.clone();
         let auto_enabled = self.settings.auto_updates_mods();
+        let offline_without_owner = self.settings.dev_offline;
         std::thread::spawn(move || {
             // One step at a time, on stderr and in the window.
             let say = |stderr: &str, shown: &str| play_step::say(&tx, stderr, shown.into());
@@ -403,7 +404,7 @@ impl Launcher {
             let session = if horizon_launcher::developer_offline::enabled(&tag) {
                 Ok(None)
             } else {
-                account::session_for_game(&backend::game_home()).map(Some)
+                account::session_for_game(&backend::game_home(), offline_without_owner).map(Some)
             };
             say("starting the game", tr("Starting the game…"));
             let _ = tx.send(Msg::Session(session));
@@ -421,8 +422,14 @@ impl Launcher {
 
     pub(crate) fn load_profile_heads(&mut self) {
         let resources = self.game_resources();
+        let offline: Vec<String> = self
+            .players()
+            .into_iter()
+            .filter(|(who, _, _)| !matches!(who, account::Player::Microsoft(_)))
+            .map(|(_, name, _)| name)
+            .collect();
         self.profile_heads
-            .request(&self.accounts.accounts, resources, &self.tx);
+            .request(&self.accounts.accounts, &offline, resources, &self.tx);
     }
 
     pub(crate) fn begin_auth_job(&mut self, uuid: &str) -> Option<u64> {
